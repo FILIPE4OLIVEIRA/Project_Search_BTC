@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/big"
+	"math/rand"
 	"net/http"
 	"os"
 	"runtime"
@@ -53,11 +54,18 @@ func main() {
 	// Ask the user for the range number
 	rangeNumber := promptRangeNumber(len(ranges.Ranges))
 
+	// Ask the user for the search method
+	searchMode := promptSearchMode()
+
 	// Initialize privKeyInt with the minimum value of the selected range
-	privKeyHex := ranges.Ranges[rangeNumber-1].Min
+	minKeyHex := ranges.Ranges[rangeNumber-1].Min
+	maxKeyHex := ranges.Ranges[rangeNumber-1].Max
 
 	privKeyInt := new(big.Int)
-	privKeyInt.SetString(privKeyHex[2:], 16)
+	privKeyInt.SetString(minKeyHex[2:], 16)
+
+	maxKeyInt := new(big.Int)
+	maxKeyInt.SetString(maxKeyHex[2:], 16)
 
 	// Load wallet addresses from JSON file
 	wallets, err := loadWallets("wallets.json")
@@ -91,6 +99,8 @@ func main() {
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
 
+	var currentKey *big.Int
+
 	// Goroutine to print speed updates
 	go func() {
 		for {
@@ -99,7 +109,7 @@ func main() {
 				elapsedTime := time.Since(startTime).Seconds()
 				keysPerSecond := float64(keysChecked) / elapsedTime
 				fmt.Printf("[Current Key: 0x%s] || [Keys: %s] || [Keys/Seg: %s]\n",
-					privKeyInt.Text(16),
+					currentKey.Text(16), // Use currentKey instead of privKeyInt
 					humanize.Comma(int64(keysChecked)),
 					humanize.Comma(int64(keysPerSecond)))
 			case <-done:
@@ -119,15 +129,21 @@ func main() {
 		}
 	}()
 
-	// Send private keys to the workers
+	// Send private keys to the workers based on the search mode
 	go func() {
 		for {
-			privKeyCopy := new(big.Int).Set(privKeyInt)
-			privKeyChan <- privKeyCopy
-			privKeyInt.Add(privKeyInt, big.NewInt(1))
+			if searchMode == 2 { // Random mode
+				privKeyCopy := getRandomKeyInRange(privKeyInt, maxKeyInt)
+				currentKey = new(big.Int).Set(privKeyCopy)
+				privKeyChan <- privKeyCopy
+			} else { // Sequential mode
+				currentKey = new(big.Int).Set(privKeyInt)
+				privKeyChan <- currentKey
+				privKeyInt.Add(privKeyInt, big.NewInt(1))
+			}
 			keysChecked++
 			if keysChecked%25000000 == 0 {
-				saveTestedKeys(privKeyCopy)
+				saveTestedKeys(currentKey)
 			}
 		}
 	}()
@@ -328,6 +344,34 @@ func promptRangeNumber(totalRanges int) int {
 		}
 		fmt.Println("Numero Inválido.")
 	}
+}
+
+// promptSearchType prompts the user to select a search type
+func promptSearchMode() int {
+	reader := bufio.NewReader(os.Stdin)
+	charReadline := '\n'
+
+	if runtime.GOOS == "windows" {
+		charReadline = '\r'
+	}
+
+	for {
+		fmt.Print("Escolha o Modo de Busca (1 = Sequencial, 2 = Aleatório): ")
+		input, _ := reader.ReadString(byte(charReadline))
+		input = strings.TrimSpace(input)
+		searchMode, err := strconv.Atoi(input)
+		if err == nil && (searchMode == 1 || searchMode == 2) {
+			return searchMode
+		}
+		fmt.Println("Modo de Busca Inválido.")
+	}
+}
+
+func getRandomKeyInRange(minKey, maxKey *big.Int) *big.Int {
+	rangeSize := new(big.Int).Sub(maxKey, minKey)
+	randomOffset := new(big.Int).Rand(rand.New(rand.NewSource(time.Now().UnixNano())), rangeSize)
+	randomKey := new(big.Int).Add(minKey, randomOffset)
+	return randomKey
 }
 
 // saveTestedKeys saves the current private key state to a file
