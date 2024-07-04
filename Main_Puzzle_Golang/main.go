@@ -64,6 +64,9 @@ func main() {
 	privKeyInt := new(big.Int)
 	privKeyInt.SetString(minKeyHex[2:], 16)
 
+	minKeyInt := new(big.Int)
+	minKeyInt.SetString(minKeyHex[2:], 16)
+
 	maxKeyInt := new(big.Int)
 	maxKeyInt.SetString(maxKeyHex[2:], 16)
 
@@ -77,7 +80,7 @@ func main() {
 	startTime := time.Now()
 
 	// Number of CPU cores to use
-	numCPU := runtime.NumCPU()
+	numCPU := runtime.NumCPU() / 2
 	fmt.Printf("CPUs: %s\n", white(numCPU))
 	fmt.Printf("Initial Key [0x%s]\n", privKeyInt.Text(16))
 	runtime.GOMAXPROCS(numCPU * 2)
@@ -96,7 +99,7 @@ func main() {
 	}
 
 	// Ticker for periodic updates every 5 seconds
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	done := make(chan bool)
 
 	var currentKey *big.Int
@@ -109,7 +112,7 @@ func main() {
 				elapsedTime := time.Since(startTime).Seconds()
 				keysPerSecond := float64(keysChecked) / elapsedTime
 				fmt.Printf("[Current Key: 0x%s] || [Keys: %s] || [Keys/Seg: %s]\n",
-					currentKey.Text(16), // Use currentKey instead of privKeyInt
+					currentKey.Text(16),
 					humanize.Comma(int64(keysChecked)),
 					humanize.Comma(int64(keysPerSecond)))
 			case <-done:
@@ -119,27 +122,27 @@ func main() {
 		}
 	}()
 
-	// Goroutine to save tested keys every 100 million keys
-	go func() {
-		for {
-			time.Sleep(time.Second * 60)
-			if keysChecked > 0 && keysChecked%25000000 == 0 {
-				saveTestedKeys(privKeyInt)
-			}
-		}
-	}()
-
 	// Send private keys to the workers based on the search mode
 	go func() {
+		sequentialCount := 0
 		for {
-			if searchMode == 2 { // Random mode
-				privKeyCopy := getRandomKeyInRange(privKeyInt, maxKeyInt)
-				currentKey = new(big.Int).Set(privKeyCopy)
-				privKeyChan <- privKeyCopy
-			} else { // Sequential mode
+			if searchMode == 1 {
 				currentKey = new(big.Int).Set(privKeyInt)
 				privKeyChan <- currentKey
 				privKeyInt.Add(privKeyInt, big.NewInt(1))
+			} else if searchMode == 2 {
+				privKeyInt := getRandomKeyInRange(minKeyInt, maxKeyInt)
+				currentKey = new(big.Int).Set(privKeyInt)
+				privKeyChan <- currentKey
+			} else {
+				if sequentialCount == 0 || sequentialCount >= 2500000 {
+					privKeyInt = getRandomKeyInRange(minKeyInt, maxKeyInt)
+					sequentialCount = 0
+				}
+				currentKey = new(big.Int).Set(privKeyInt)
+				privKeyChan <- currentKey
+				privKeyInt.Add(privKeyInt, big.NewInt(1))
+				sequentialCount++
 			}
 			keysChecked++
 			if keysChecked%25000000 == 0 {
@@ -150,18 +153,7 @@ func main() {
 
 	foundAddress := <-resultChan
 
-	color.Magenta("We Found the Target Wallet!!\n")
-	walletAddress := createPublicAddress(foundAddress)
-	privateKey := privateKeyToWIF(foundAddress)
-	balance := checkBalance(walletAddress)
-
-	color.Cyan("Private Key Hex: 0x%s\n", foundAddress.Text(16))
-	color.Blue("Wallet Address: %s\n", walletAddress)
-	color.Red("Private Key Wif: %s\n", privateKey)
-	color.Green("Balance: %.12f BTC\n", balance)
-
-	// Save target wallet details to file
-	saveTargetWallet(walletAddress, privateKey, balance)
+	close(done)
 
 	// Wait for all workers to finish
 	go func() {
@@ -169,12 +161,13 @@ func main() {
 		close(privKeyChan)
 	}()
 
-	elapsedTime := time.Since(startTime).Seconds()
-	keysPerSecond := float64(keysChecked) / elapsedTime
+	walletAddress := createPublicAddress(foundAddress)
+	privateKey := privateKeyToWIF(foundAddress)
+	balance := checkBalance(walletAddress)
 
-	color.Yellow("Keys: %s\n", humanize.Comma(int64(keysChecked)))
-	color.Yellow("Time: %.2f seconds\n", elapsedTime)
-	color.Yellow("Keys/Seg: %s\n", humanize.Comma(int64(keysPerSecond)))
+	printResults(foundAddress, walletAddress, privateKey, balance, keysChecked, startTime)
+	saveTargetWallet(walletAddress, privateKey, balance)
+
 }
 
 func worker(wallets *Wallets, privKeyChan <-chan *big.Int, resultChan chan<- *big.Int, wg *sync.WaitGroup) {
@@ -356,22 +349,22 @@ func promptSearchMode() int {
 	}
 
 	for {
-		fmt.Print("Escolha o Modo de Busca (1 = Sequencial, 2 = Aleatório): ")
+		fmt.Print("Escolha o Modo de Busca (1 = Sequencial, 2 = Aleatório 3 = Aleatório + Sequencial): ")
 		input, _ := reader.ReadString(byte(charReadline))
 		input = strings.TrimSpace(input)
 		searchMode, err := strconv.Atoi(input)
-		if err == nil && (searchMode == 1 || searchMode == 2) {
+		if err == nil && (searchMode == 1 || searchMode == 2 || searchMode == 3) {
 			return searchMode
 		}
 		fmt.Println("Modo de Busca Inválido.")
 	}
 }
 
-func getRandomKeyInRange(minKey, maxKey *big.Int) *big.Int {
-	rangeSize := new(big.Int).Sub(maxKey, minKey)
-	randomOffset := new(big.Int).Rand(rand.New(rand.NewSource(time.Now().UnixNano())), rangeSize)
-	randomKey := new(big.Int).Add(minKey, randomOffset)
-	return randomKey
+func getRandomKeyInRange(minKeyInt, maxKeyInt *big.Int) *big.Int {
+	rangeInt := new(big.Int).Sub(maxKeyInt, minKeyInt)
+	randInt := new(big.Int).Rand(rand.New(rand.NewSource(time.Now().UnixNano())), rangeInt)
+	randInt.Add(randInt, minKeyInt)
+	return randInt
 }
 
 // saveTestedKeys saves the current private key state to a file
@@ -406,6 +399,22 @@ func saveTargetWallet(address, privateKey string, balance float64) {
 	if err != nil {
 		log.Fatalf("Failed to Write to File: %v", err)
 	}
+}
+
+// Função para imprimir os resultados
+func printResults(foundAddress *big.Int, walletAddress, privateKey string, balance float64, keysChecked int, startTime time.Time) {
+	elapsedTime := time.Since(startTime).Seconds()
+	keysPerSecond := float64(keysChecked) / elapsedTime
+	color.White("=========================================================================\n")
+	color.White("We Found the Target Wallet!!\n")
+	color.Yellow("Private Key Hex: 0x%s\n", foundAddress.Text(16))
+	color.Blue("Wallet Address: %s\n", walletAddress)
+	color.Red("Private Key Wif: %s\n", privateKey)
+	color.Green("Balance: %.12f BTC\n", balance)
+	color.White("Keys: %s\n", humanize.Comma(int64(keysChecked)))
+	color.White("Time: %.2f seconds\n", elapsedTime)
+	color.White("Keys/Seg: %s\n", humanize.Comma(int64(keysPerSecond)))
+	color.White("=========================================================================\n")
 }
 
 // checkBalance checks the balance of a Bitcoin address by querying blockchain.info
