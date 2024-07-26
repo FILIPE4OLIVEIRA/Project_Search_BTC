@@ -135,7 +135,7 @@ func main() {
 				currentKey = new(big.Int).Set(privKeyInt)
 				privKeyChan <- currentKey
 			} else {
-				if sequentialCount == 0 || sequentialCount >= 2500000 {
+				if sequentialCount == 0 || sequentialCount >= 25000000 {
 					privKeyInt = getRandomKeyInRange(minKeyInt, maxKeyInt)
 					sequentialCount = 0
 				}
