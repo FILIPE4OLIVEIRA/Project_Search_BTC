@@ -19,7 +19,7 @@ if __name__ == "__main__":
     elif search_method == 2:
         search_addresses_random(min_key, max_key, TARGET_ADDRESSES)
     elif search_method == 3:
-        search_addresses_sequential_random(min_key, max_key, TARGET_ADDRESSES)
+        search_addresses_sequential_random(min_key, max_key, TARGET_ADDRESSES, step = 200)
     else:
         print("Error: Número Invalido")
 
