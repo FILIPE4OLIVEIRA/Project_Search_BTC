@@ -76,6 +76,8 @@ func main() {
 		log.Fatalf("Failed to Load Wallets: %v", err)
 	}
 
+	fileName := "tested_keys.txt"
+	TotalkeysChecked := getInitialKeysChecked(fileName)
 	keysChecked := 0
 	startTime := time.Now()
 
@@ -111,9 +113,10 @@ func main() {
 			case <-ticker.C:
 				elapsedTime := time.Since(startTime).Seconds()
 				keysPerSecond := float64(keysChecked) / elapsedTime
+				TotalkeysChecked += int(keysPerSecond)
 				fmt.Printf("[Current Key: 0x%s] || [Keys: %s] || [Keys/Seg: %s]\n",
 					currentKey.Text(16),
-					humanize.Comma(int64(keysChecked)),
+					humanize.Comma(int64(TotalkeysChecked)),
 					humanize.Comma(int64(keysPerSecond)))
 			case <-done:
 				ticker.Stop()
@@ -382,6 +385,28 @@ func saveTestedKeys(privKeyInt *big.Int) {
 	if err != nil {
 		log.Fatalf("Failed to Write to File: %v", err)
 	}
+}
+
+func getInitialKeysChecked(fileName string) int {
+	file, err := os.Open(fileName)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return 0
+	}
+	defer file.Close()
+
+	lineCount := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lineCount++
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading file:", err)
+		return 0
+	}
+
+	return lineCount * 25000000
 }
 
 // saveTargetWallet saves the details of the found wallet to a file
