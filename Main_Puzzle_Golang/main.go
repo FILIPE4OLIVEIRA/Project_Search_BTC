@@ -100,7 +100,7 @@ func main() {
 		go worker(wallets, privKeyChan, resultChan, &wg)
 	}
 
-	// Ticker for periodic updates every 5 seconds
+	// Ticker for periodic updates
 	ticker := time.NewTicker(1 * time.Second)
 	done := make(chan bool)
 
@@ -149,7 +149,7 @@ func main() {
 			}
 			keysChecked++
 			if keysChecked%25000000 == 0 {
-				saveTestedKeys(currentKey)
+				saveTestedKeys(privKeyInt, rangeNumber)
 			}
 		}
 	}()
@@ -370,9 +370,9 @@ func getRandomKeyInRange(minKeyInt, maxKeyInt *big.Int) *big.Int {
 	return randInt
 }
 
-// saveTestedKeys saves the current private key state to a file
-func saveTestedKeys(privKeyInt *big.Int) {
-	filename := "tested_keys.txt"
+// saveTestedKeys saves the current private key state to a file with wallet number in the filename
+func saveTestedKeys(privKeyInt *big.Int, walletNumber int) {
+	filename := fmt.Sprintf("tested_keys_%d.txt", walletNumber)
 
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
