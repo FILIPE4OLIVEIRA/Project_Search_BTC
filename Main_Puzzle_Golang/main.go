@@ -76,7 +76,7 @@ func main() {
 		log.Fatalf("Failed to Load Wallets: %v", err)
 	}
 
-	fileName := "tested_keys.txt"
+	fileName := fmt.Sprintf("tested_keys_%d.txt", rangeNumber)
 	TotalkeysChecked := getInitialKeysChecked(fileName)
 	keysChecked := 0
 	startTime := time.Now()
