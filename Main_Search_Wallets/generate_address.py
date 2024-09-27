@@ -11,7 +11,7 @@ def generate_mnemonic():
     return mnemonic_phrase
 
 # Função para gerar uma carteira bech32
-def bench32_wallet(mnemonic_phrase):
+def bech32_wallet(mnemonic_phrase):
     seed = mnemonic.Mnemonic.to_seed(mnemonic_phrase)  # Converte a frase mnemônica em uma semente
     root_key = bip32utils.BIP32Key.fromEntropy(seed)  # Cria uma chave BIP32 a partir da semente
     child_key = root_key.ChildKey(44 + BIP32_HARDEN).ChildKey(0 + BIP32_HARDEN).ChildKey(0 + BIP32_HARDEN).ChildKey(0).ChildKey(0)  # Deriva a chave filha
@@ -40,24 +40,13 @@ def legacy_wallet(mnemonic_phrase):
     return address, private_key  # Retorna a frase mnemônica, o endereço e a chave privada
 
 def generate_all_wallets(mnemonic_phrase):
-    # Converte a frase mnemônica em uma semente
-    seed = mnemonic.Mnemonic.to_seed(mnemonic_phrase)
-    # Cria a chave BIP32 a partir da semente
-    root_key = bip32utils.BIP32Key.fromEntropy(seed)
-    # Deriva a chave filha
-    child_key = root_key.ChildKey(44 + BIP32_HARDEN).ChildKey(0 + BIP32_HARDEN).ChildKey(0 + BIP32_HARDEN).ChildKey(0).ChildKey(0)
-    private_key = child_key.WalletImportFormat()  # Chave privada no formato WIF
-    public_key_hex = child_key.PublicKey().hex()  # Chave pública em formato hexadecimal
-    hdkey = HDKey(public_key_hex)  # Objeto HDKey com chave pública
-   
-    # Gerar carteira Bech32
-    bech32_address = hdkey.address(encoding='bech32')  # Endereço Bech32
-    # Gerar carteira SegWit (P2WPKH sobre P2SH)
-    segwit_address = child_key.P2WPKHoP2SHAddress()  # Endereço SegWit
-    # Gerar carteira Legacy
-    legacy_address = child_key.Address()  # Endereço Legacy
+    # Gerar carteiras usando as funções individuais
+    bech32_address, bech32_private_key = bech32_wallet(mnemonic_phrase)
+    segwit_address, _ = segwit_wallet(mnemonic_phrase)
+    legacy_address, _ = legacy_wallet(mnemonic_phrase)
+    private_key = bech32_private_key  # Todas devem ser iguais, já que derivam da mesma chave
     
-    # Retornar os três tipos de endereços e suas respectivas chaves privadas
+    # Retornar os três tipos de endereços e a chave privada
     return {
         "Bech32": {"bech32_address": bech32_address},
         "Segwit": {"segwit_address": segwit_address},
