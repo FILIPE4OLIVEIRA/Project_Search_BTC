@@ -84,7 +84,7 @@ func main() {
 	// Number of CPU cores to use
 	numCPU := runtime.NumCPU() / 2
 	fmt.Printf("CPUs: %s\n", white(numCPU))
-	fmt.Printf("Initial Key [0x%s]\n", privKeyInt.Text(16))
+	fmt.Printf("Key Ranges Initial [0x%s] -- Final [0x%s]\n", minKeyInt.Text(16), maxKeyInt.Text(16))
 	runtime.GOMAXPROCS(numCPU * 2)
 
 	// Create a channel to send private keys to workers
@@ -137,6 +137,9 @@ func main() {
 				privKeyInt := getRandomKeyInRange(minKeyInt, maxKeyInt)
 				currentKey = new(big.Int).Set(privKeyInt)
 				privKeyChan <- currentKey
+				if keysChecked%100000 == 0 {
+					saveTestedKeys(privKeyInt, rangeNumber)
+				}
 			} else {
 				if sequentialCount == 0 || sequentialCount >= 25000000 {
 					privKeyInt = getRandomKeyInRange(minKeyInt, maxKeyInt)
@@ -146,11 +149,11 @@ func main() {
 				privKeyChan <- currentKey
 				privKeyInt.Add(privKeyInt, big.NewInt(1))
 				sequentialCount++
+				if keysChecked%25000000 == 0 {
+					saveTestedKeys(privKeyInt, rangeNumber)
+				}
 			}
 			keysChecked++
-			if keysChecked%25000000 == 0 {
-				saveTestedKeys(privKeyInt, rangeNumber)
-			}
 		}
 	}()
 
