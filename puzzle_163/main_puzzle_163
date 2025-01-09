@@ -1,0 +1,157 @@
+import os
+import time
+import base58   
+import logging  
+import requests 
+import itertools
+import hashlib
+
+from hashlib import sha256
+from ecdsa import SigningKey, SECP256k1
+
+def sha256(data):
+    return hashlib.sha256(data).digest()
+
+def private_key_to_wif(private_key_hex):
+    extended_key = bytes.fromhex("80" + private_key_hex)
+    extended_key += b'\x01'
+    checksum = sha256(sha256(extended_key))[:4]
+    final_key = extended_key + checksum
+    private_key_wif_compressed = base58.b58encode(final_key).decode()
+    return private_key_wif_compressed
+
+def wif_to_address(private_key_wif):
+    decoded_key = base58.b58decode(private_key_wif)
+    private_key = decoded_key[1:33]
+    sk = SigningKey.from_string(private_key, curve=SECP256k1)
+    public_key = sk.get_verifying_key().to_string("compressed")
+    ripemd160 = hashlib.new("ripemd160")
+    ripemd160.update(hashlib.sha256(public_key).digest())
+    pubkey_hash = ripemd160.digest()
+    extended_key = b"\x00" + pubkey_hash
+    checksum = sha256(sha256(extended_key))[:4]
+    address = base58.b58encode(extended_key + checksum).decode()
+    return address
+
+def record_data(wallet_count, candidate_key, address, private_key, balance):
+    formatted_balance = f"{balance:.12f}"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(script_dir, "resultado_chave_privada.txt")
+    mode = 'a' if os.path.exists(file_path) else 'w'
+    with open(file_path, mode) as f:
+        f.write(f"Wallet[{wallet_count}]\n")
+        f.write(f"Mnemonic Phrase: {candidate_key}\n")
+        f.write(f"Wallet Address: {address}\n")
+        f.write(f"Wallet Private Key: {private_key}\n")
+        f.write(f"Wallet Balance: {formatted_balance}\n\n")
+
+def check_balance(address, retries=2, delay=3):
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
+    for attempt in range(retries):
+        try:
+            response = requests.get(f"https://blockchain.info/balance?active={address}", timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            balance = data[address]["final_balance"]
+            return balance / 100000000
+        except requests.RequestException as e:
+            if attempt < retries - 1:
+                logging.error(f"Erro ao verificar saldo, tentando novamente em {delay} segundos: {str(e)}")
+                time.sleep(delay)
+            else:
+                logging.error("Erro ao verificar saldo: %s", str(e))
+    return 0
+
+def find_private_key_sequential(partial_key, target_address):
+    hex_chars = "0123456789abcdef"
+    x_positions = [i for i, char in enumerate(partial_key) if char == 'x']
+    combinations = itertools.product(hex_chars, repeat=len(x_positions))
+    attempt_count = 0
+    partial_key_as_list = list(partial_key)
+
+    for combo in combinations:
+        attempt_count += 1
+        for i, char in zip(x_positions, combo):
+            partial_key_as_list[i] = char
+        candidate_key = ''.join(partial_key_as_list)
+
+        if attempt_count % 1000 == 0:
+            print(f"Tentativa: {attempt_count}, Chave: {candidate_key}")
+        
+        private_key_wif = private_key_to_wif(candidate_key)
+        address = wif_to_address(private_key_wif)
+
+        if address == target_address:
+            return address, private_key_wif, candidate_key, attempt_count
+
+    print("Nada encontrado após todas as tentativas")
+    return None, None, None, None
+
+def find_private_key_random(partial_key, target_address, max_attempts=10**36):
+    import random
+
+    hex_chars = "0123456789abcdef"
+    hex_chars_gt_8 = "9abcdef"
+    hex_to_int = {char: idx for idx, char in enumerate(hex_chars)}
+    int_to_hex = {idx: char for idx, char in enumerate(hex_chars)}
+    x_positions = [i for i, char in enumerate(partial_key) if char == 'x']
+
+    if len(x_positions) < 4:
+        raise ValueError("A chave parcial precisa ter pelo menos quatro 'x' para aplicar essa regra.")
+
+    fourth_last_x_index = x_positions[-4]
+    penultimate_x_index = x_positions[-2]
+    last_x_index = x_positions[-1]
+    partial_key_as_list = list(partial_key)
+
+    for attempt_count in range(1, max_attempts + 1):
+        for i in x_positions:
+            partial_key_as_list[i] = random.choice(hex_chars)
+
+        partial_key_as_list[fourth_last_x_index] = random.choice(hex_chars_gt_8)
+
+        penultimate_x_value = random.choice(hex_chars)
+        last_x_value = int_to_hex[(hex_to_int[penultimate_x_value] + 3) % 16]
+
+        partial_key_as_list[penultimate_x_index] = penultimate_x_value
+        partial_key_as_list[last_x_index] = last_x_value
+
+        candidate_key = ''.join(partial_key_as_list)
+
+        if attempt_count % 1000 == 0:
+            print(f"Tentativa: {attempt_count}, Chave: {candidate_key}")
+
+        private_key_wif = private_key_to_wif(candidate_key)
+        address = wif_to_address(private_key_wif)
+
+        if address == target_address:
+            return address, private_key_wif, candidate_key, attempt_count
+
+    print("Nada encontrado após o número máximo de tentativas")
+    return None, None, None, None 
+
+def main():
+    target_address = "1Hoyt6UBzwL5vvUSTLMQC2mwvvE5PpeSC"
+    partial_key = "403b3d4fcff56a92f335a0cf570e47bcb17b2a6b867b86a84704863d3x3x7x3x"
+    choice = input("Escolha o método de busca: (1 - Sequencial, 2 - Aleatório): ")
+    if choice == "1":
+        address, private_key_wif, candidate_key, attempt_count = find_private_key_sequential(partial_key, target_address)
+    elif choice == "2":
+        address, private_key_wif, candidate_key, attempt_count = find_private_key_random(partial_key, target_address)
+    else:
+        print("Opção Inválida!")
+        return
+
+    if address == target_address:
+        balance = check_balance(address)
+        print("======================================================================================")
+        print(f"Tentativa:[{attempt_count}]")
+        print(f"Chave Privada: {candidate_key}")
+        print(f"Chave Privada WIF: {private_key_wif}")
+        print(f"Endereço gerado: {address}")
+        print(f"Saldo: {balance:.8f} BTC")
+        record_data(attempt_count, candidate_key, address, private_key_wif, balance)
+        print(f"Processo Bem Sucedido e Finalizado")
+
+if __name__ == "__main__":
+    main()
