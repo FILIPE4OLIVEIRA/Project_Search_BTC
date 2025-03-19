@@ -140,7 +140,7 @@ func main() {
 				if keysChecked%100000 == 0 {
 					saveTestedKeys(privKeyInt, rangeNumber)
 				}
-			} else {
+			} else if searchMode == 3 {
 				if sequentialCount == 0 || sequentialCount >= 25000000 {
 					privKeyInt = getRandomKeyInRange(minKeyInt, maxKeyInt)
 					sequentialCount = 0
